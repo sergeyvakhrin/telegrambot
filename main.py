@@ -4,12 +4,16 @@ from dotenv import load_dotenv
 import webbrowser
 
 import telebot
+import sqlite3
 from telebot import types
+from telebot.types import InlineKeyboardButton
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / '.env', override=True)
 
 bot = telebot.TeleBot(os.getenv('SECRET_KEY'))
+
+name = None # Для передачи между функциями
 
 
 @bot.message_handler(commands=['site', 'website'])
@@ -28,12 +32,63 @@ def main(message):
     btn3 = types.KeyboardButton('Изменить текст')
     markup.row(btn2, btn3)
 
-    file = open('./pic.jpg', 'rb')
+    file = open('./pic/pic.jpg', 'rb')
     bot.send_photo(message.chat.id, file, reply_markup=markup)
 
     bot.send_message(message.chat.id, 'Привет!', reply_markup=markup)
 
+    # Подключаем базу данных
+    conn = sqlite3.connect('telegrambot.sql')
+    cur = conn.cursor()
+
+    cur.execute('CREATE TABLE IF NOT EXISTS users (id int auto_increment primary key, name varchar(50), pass varchar(50))')
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    bot.send_message(message.chat.id, 'Привет! Сейчас мы тебя зарегистрируем. Введите Ваше имя:')
+    bot.register_next_step_handler(message, user_name)
+
     bot.register_next_step_handler(message, on_click)
+
+
+def user_name(message):
+    global name
+    name = message.text.strip()
+    bot.send_message(message.chat.id, f'{name} введите пароль:')
+    bot.register_next_step_handler(message, user_pass)
+
+
+def user_pass(message):
+    password = message.text.strip()
+
+    conn = sqlite3.connect('telegrambot.sql')
+    cur = conn.cursor()
+
+    cur.execute("INSERT INTO users (name, pass) VALUES ('%s', '%s')" % (name, password))
+    conn.commit()
+    cur.close()
+    conn.close()
+
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton('Список пользователей', callback_data='users'))
+    bot.send_message(message.chat.id, f'Пользователь {name} зарегистрирован.', reply_markup=markup)
+
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback(call):
+    conn = sqlite3.connect('telegrambot.sql')
+    cur = conn.cursor()
+
+    cur.execute('SELECT * FROM users')
+    users = cur.fetchall() # Вернет все найденные записи
+
+    for user in users:
+        bot.send_message(call.message.chat.id, f'{user[1]}')
+
+    cur.close()
+    conn.close()
+
 
 def on_click(message):
     """ Будет выполняться первой так как объявлена как register_next_step_handler """
