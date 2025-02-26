@@ -25,7 +25,7 @@ def summa(message):
     try:
         amount = float(message.text.strip())
     except ValueError:
-        bot.send_message(message.chat.id, "Нужно вводить цифры. Вместо запятой, поставьте точку.")
+        bot.send_message(message.chat.id, "Нужно вводить цифры.")
         bot.register_next_step_handler(message, summa)
         return
     if amount > 0:

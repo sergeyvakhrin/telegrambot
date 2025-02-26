@@ -2,3 +2,6 @@ pyTelegramBotAPI
 python-dotenv
 requests
 CurrencyConverter
+aiohttp
+pydantic
+pydantic_settings
