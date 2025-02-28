@@ -6,12 +6,15 @@ from datetime import datetime
 from aiogram import Bot, Dispatcher, types, F, html
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters.command import Command
+from aiogram.filters.command import Command, CommandObject
 from aiogram.types import Message
 from aiogram.utils.formatting import Text
 from aiogram.utils.formatting import (
     Bold, as_list, as_marked_section, as_key_value, HashTag
 )
+from aiogram.types import FSInputFile, URLInputFile, BufferedInputFile
+from aiogram.utils.markdown import hide_link
+from aiogram.utils.media_group import MediaGroupBuilder
 
 from config_reader import config
 
@@ -105,8 +108,8 @@ async def cmd_advanced_example(message: types.Message):
 #     await message.answer(f"{message.html_text}\n\n{added_text}", parse_mode="HTML")
 
 
-@dp.message(F.text)
-async def extract_data(message: Message):
+# @dp.message(F.text)
+# async def extract_data(message: Message):
     """ Достаем из сообщения данные
     '
     привет www.yandex.ru
@@ -114,25 +117,176 @@ async def extract_data(message: Message):
     потому что SuperS3cretPa$$w0rd
     '
     """
-    data = {
-        "url": "<N/A>",
-        "email": "<N/A>",
-        "code": "<N/A>"
-    }
-    entities = message.entities or []
-    for item in entities:
-        if item.type in data.keys():
-            # Неправильно
-            # data[item.type] = message.text[item.offset : item.offset+item.length]
-            # Правильно
-            data[item.type] = item.extract_from(message.text)
-    await message.reply(
-        "Вот что я нашёл:\n"
-        f"URL: {html.quote(data['url'])}\n"
-        f"E-mail: {html.quote(data['email'])}\n"
-        f"Пароль: {html.quote(data['code'])}"
+#     data = {
+#         "url": "<N/A>",
+#         "email": "<N/A>",
+#         "code": "<N/A>"
+#     }
+#     entities = message.entities or []
+#     for item in entities:
+#         if item.type in data.keys():
+#             # Неправильно
+#             # data[item.type] = message.text[item.offset : item.offset+item.length]
+#             # Правильно
+#             data[item.type] = item.extract_from(message.text)
+#     await message.reply(
+#         "Вот что я нашёл:\n"
+#         f"URL: {html.quote(data['url'])}\n"
+#         f"E-mail: {html.quote(data['email'])}\n"
+#         f"Пароль: {html.quote(data['code'])}"
+#     )
+
+
+@dp.message(Command("settimer"))
+async def cmd_settimer(
+        message: Message,
+        command: CommandObject
+):
+    """ Создаем команды с аргументами """
+    # Если не переданы никакие аргументы, то
+    # command.args будет None
+    if command.args is None:
+        await message.answer(
+            "Ошибка: не переданы аргументы"
+        )
+        return
+    # Пробуем разделить аргументы на две части по первому встречному пробелу
+    try:
+        delay_time, text_to_send = command.args.split(" ", maxsplit=1)
+    # Если получилось меньше двух частей, вылетит ValueError
+    except ValueError:
+        await message.answer(
+            "Ошибка: неправильный формат команды. Пример:\n"
+            "/settimer <time> <message>"
+        )
+        return
+    await message.answer(
+        "Таймер добавлен!\n"
+        f"Время: {delay_time}\n"
+        f"Текст: {text_to_send}"
     )
 
+
+# @dp.message(Command("custom1", prefix="%"))
+# async def cmd_custom1(message: Message):
+    """ Меняем префикс """
+#     await message.answer("Вижу команду!")
+#
+#
+# # Можно указать несколько префиксов....vv...
+# @dp.message(Command("custom2", prefix="/!"))
+# async def cmd_custom2(message: Message):
+#     """ Делаем несколько префиксов """
+#     await message.answer("И эту тоже вижу!")
+
+
+@dp.message(F.animation)
+async def echo_gif(message: Message):
+    """ Отправка ответом тойже гифки, что отправил пользователь """
+    await message.reply_animation(message.animation.file_id)
+
+
+@dp.message(Command('images'))
+async def upload_photo(message: Message):
+    # Сюда будем помещать file_id отправленных файлов, чтобы потом ими воспользоваться
+    file_ids = []
+
+    # Чтобы продемонстрировать BufferedInputFile, воспользуемся "классическим"
+    # открытием файла через `open()`. Но, вообще говоря, этот способ
+    # лучше всего подходит для отправки байтов из оперативной памяти
+    # после проведения каких-либо манипуляций, например, редактированием через Pillow
+    # with open("pic/couldy.png", "rb") as image_from_buffer:
+    #     result = await message.answer_photo(
+    #         BufferedInputFile(
+    #             image_from_buffer.read(),
+    #             filename="image from buffer.jpg"
+    #         ),
+    #         caption="Изображение из буфера",
+    #         # Текст сверху
+    #         show_caption_above_media=True
+    #     )
+    #     file_ids.append(result.photo[-1].file_id)
+
+    # Отправка файла из файловой системы
+    image_from_pc = FSInputFile("pic/couldy.png")
+    result = await message.answer_photo(
+        image_from_pc,
+        caption="Изображение из файла на компьютере",
+        show_caption_above_media=True
+    )
+    file_ids.append(result.photo[-1].file_id)
+    #
+    # # Отправка файла по ссылке
+    # image_from_url = URLInputFile("https://picsum.photos/seed/groosha/400/300")
+    # result = await message.answer_photo(
+    #     image_from_url,
+    #     caption="Изображение по ссылке"
+    # )
+    # file_ids.append(result.photo[-1].file_id)
+    # await message.answer("Отправленные файлы:\n"+"\n".join(file_ids))
+
+
+@dp.message(F.photo)
+async def download_photo(message: Message, bot: Bot):
+    """ Скачивание файла на сервер """
+    await bot.download(
+        message.photo[-1],
+        destination=f"./tmp/{message.photo[-1].file_id}.jpg"
+    )
+
+@dp.message(F.sticker)
+async def download_sticker(message: Message, bot: Bot):
+    await bot.download(
+        message.sticker,
+        # для Windows пути надо подправить
+        destination=f"./tmp/{message.sticker.file_id}.webp"
+    )
+
+
+# @dp.message(Command("album"))
+# async def cmd_album(message: Message):
+#     album_builder = MediaGroupBuilder(
+#         caption="Общая подпись для будущего альбома"
+#     )
+#     album_builder.add(
+#         type="photo",
+#         media=FSInputFile("image_from_pc.jpg")
+#         # caption="Подпись к конкретному медиа"
+#
+#     )
+#     # Если мы сразу знаем тип, то вместо общего add
+#     # можно сразу вызывать add_<тип>
+#     album_builder.add_photo(
+#         # Для ссылок или file_id достаточно сразу указать значение
+#         media="https://picsum.photos/seed/groosha/400/300"
+#     )
+#     album_builder.add_photo(
+#         media="<ваш file_id>"
+#     )
+#     await message.answer_media_group(
+#         # Не забудьте вызвать build()
+#         media=album_builder.build()
+#     )
+
+
+@dp.message(F.new_chat_members)
+async def somebody_added(message: Message):
+    """ Сервисные сообщения """
+    for user in message.new_chat_members:
+        # проперти full_name берёт сразу имя И фамилию
+        # (на скриншоте выше у юзеров нет фамилии)
+        await message.reply(f"Привет, {user.full_name}")
+
+
+@dp.message(Command("hidden_link"))
+async def cmd_hidden_link(message: Message):
+    """ Скрываем ссылку """
+    await message.answer(
+        f"{hide_link('https://telegra.ph/file/562a512448876923e28c3.png')}"
+        f"Документация Telegram: *существует*\n"
+        f"Пользователи: *не читают документацию*\n"
+        f"Груша:"
+    )
 
 
 @dp.message(Command("dice"))
