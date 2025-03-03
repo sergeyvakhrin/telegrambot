@@ -4,13 +4,16 @@ import os
 from contextlib import suppress
 from datetime import datetime
 from random import randint
+from typing import Optional
 
-from aiogram import Bot, Dispatcher, types, F, html
+from aiogram import Bot, Dispatcher, types, F, html, flags
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.exceptions import TelegramBadRequest
+from aiogram.filters.callback_data import CallbackData
 from aiogram.filters.command import Command, CommandObject
-from aiogram.types import Message
+from aiogram.types import Message, CallbackQuery
+from aiogram.utils.callback_answer import CallbackAnswerMiddleware, CallbackAnswer
 from aiogram.utils.formatting import Text
 from aiogram.utils.formatting import (
     Bold, as_list, as_marked_section, as_key_value, HashTag
@@ -21,7 +24,7 @@ from aiogram.utils.markdown import hide_link
 from aiogram.utils.media_group import MediaGroupBuilder
 
 from config_reader import config
-
+from handlers import questions, different_types
 
 # Включаем логирование, чтобы не пропустить важные сообщения
 logging.basicConfig(level=logging.INFO)
@@ -35,6 +38,8 @@ bot = Bot(
 )
 # Диспетчер
 dp = Dispatcher()
+
+
 
 # Хэндлер на команду /start
 # @dp.message(F.text, Command("start"))
@@ -52,22 +57,22 @@ dp = Dispatcher()
 #     await message.answer("Как подавать котлеты?", reply_markup=keyboard)
 
 
-@dp.message(Command("start"))
-async def cmd_start(message: types.Message):
-    """ Делаем обычные кнопки """
-    kb = [
-        [
-            types.KeyboardButton(text="С пюрешкой"),
-            types.KeyboardButton(text="Без пюрешки")
-        ],
-    ]
-    keyboard = types.ReplyKeyboardMarkup(
-        keyboard=kb,
-        resize_keyboard=True,
-        input_field_placeholder="Выберите способ подачи"
-    )
-    # await message.answer("Как подавать котлеты?", reply_markup=keyboard)
-    await message.answer("Как подавать котлеты?", reply_markup=keyboard)
+# @dp.message(Command("start"))
+# async def cmd_start(message: types.Message):
+#     """ Делаем обычные кнопки """
+#     kb = [
+#         [
+#             types.KeyboardButton(text="С пюрешкой"),
+#             types.KeyboardButton(text="Без пюрешки")
+#         ],
+#     ]
+#     keyboard = types.ReplyKeyboardMarkup(
+#         keyboard=kb,
+#         resize_keyboard=True,
+#         input_field_placeholder="Выберите способ подачи"
+#     )
+#     # await message.answer("Как подавать котлеты?", reply_markup=keyboard)
+#     await message.answer("Как подавать котлеты?", reply_markup=keyboard)
 
 
 @dp.message(F.text.lower() == "с пюрешкой")
@@ -274,8 +279,110 @@ async def callbacks_num(callback: types.CallbackQuery):
     await callback.answer()
 
 
+############ Фабрика колбэков
 
 
+class NumbersCallbackFactory(CallbackData, prefix="fabnum"):
+    action: str
+    value: Optional[int] = None
+
+
+def get_keyboard_fab():
+    """ Генерация клавиатуры """
+    builder = InlineKeyboardBuilder()
+    builder.button(
+        text="-2", callback_data=NumbersCallbackFactory(action="change", value=-2)
+    )
+    builder.button(
+        text="-1", callback_data=NumbersCallbackFactory(action="change", value=-1)
+    )
+    builder.button(
+        text="+1", callback_data=NumbersCallbackFactory(action="change", value=1)
+    )
+    builder.button(
+        text="+2", callback_data=NumbersCallbackFactory(action="change", value=2)
+    )
+    builder.button(
+        text="Подтвердить", callback_data=NumbersCallbackFactory(action="finish")
+    )
+    # Выравниваем кнопки по 4 в ряд, чтобы получилось 4 + 1
+    builder.adjust(4)
+    return builder.as_markup()
+
+
+async def update_num_text_fab(message: types.Message, new_value: int):
+    with suppress(TelegramBadRequest):
+        await message.edit_text(
+            f"Укажите число: {new_value}",
+            reply_markup=get_keyboard_fab()
+        )
+
+@dp.message(Command("numbers_fab"))
+async def cmd_numbers_fab(message: types.Message):
+    user_data[message.from_user.id] = 0
+    await message.answer("Укажите число: 0", reply_markup=get_keyboard_fab())
+
+
+# Нажатие на одну из кнопок: -2, -1, +1, +2
+@dp.callback_query(NumbersCallbackFactory.filter(F.action == "change"))
+async def callbacks_num_change_fab(
+        callback: types.CallbackQuery,
+        callback_data: NumbersCallbackFactory
+):
+    # Текущее значение
+    user_value = user_data.get(callback.from_user.id, 0)
+
+    user_data[callback.from_user.id] = user_value + callback_data.value
+    await update_num_text_fab(callback.message, user_value + callback_data.value)
+    await callback.answer()
+
+
+# Нажатие на кнопку "подтвердить"
+@dp.callback_query(NumbersCallbackFactory.filter(F.action == "finish"))
+async def callbacks_num_finish_fab(callback: types.CallbackQuery):
+    # Текущее значение
+    user_value = user_data.get(callback.from_user.id, 0)
+
+    await callback.message.edit_text(f"Итого: {user_value}")
+    await callback.answer()
+
+
+###############################################
+
+#### Авто колбэки
+
+# dp = Dispatcher()
+# dp.callback_query.middleware(CallbackAnswerMiddleware())
+
+
+# dp.callback_query.middleware(
+#     CallbackAnswerMiddleware(
+#         pre=True, text="Готово!", show_alert=True
+#     )
+# )
+
+
+# @dp.callback_query()
+# async def my_handler(callback: CallbackQuery, callback_answer: CallbackAnswer):
+#     ... # тут какой-то код
+#     if <everything is ok>:
+#         callback_answer.text = "Отлично!"
+#     else:
+#         callback_answer.text = "Что-то пошло не так. Попробуйте позже"
+#         callback_answer.cache_time = 10
+#     ... # тут какой-то код
+
+
+# @dp.callback_query()
+# @flags.callback_answer(pre=False)  # переопределяем флаг pre
+# async def my_handler(callback: CallbackQuery, callback_answer: CallbackAnswer):
+#     ... # тут какой-то код
+#     if <everything is ok>:
+#         callback_answer.text = "Теперь этот текст будет видно!"
+#     ... # тут какой-то код
+
+
+##################################
 
 
 
@@ -543,6 +650,15 @@ async def cmd_dice(message: types.Message):
 
 # Запуск процесса поллинга новых апдейтов
 async def main():
+
+
+
+    dp.include_routers(questions.router, different_types.router)
+    # Альтернативный вариант регистрации роутеров по одному на строку
+    # dp.include_router(questions.router)
+    # dp.include_router(different_types.router)
+
+    await bot.delete_webhook(drop_pending_updates=True)
     await dp.start_polling(bot)
 
 
